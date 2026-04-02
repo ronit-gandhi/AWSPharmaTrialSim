@@ -1,0 +1,51 @@
+library(tidyverse)
+library(simsurv)
+library(aws.s3)
+
+Sys.setenv(
+  AWS_ACCESS_KEY_ID     = "___",
+  AWS_SECRET_ACCESS_KEY = "___",
+  AWS_DEFAULT_REGION    = "___"
+)
+
+set.seed(42)
+n_sites   <- 20       # clinical sites (clusters)
+n_per     <- 100      # patients per site
+n         <- n_sites * n_per
+
+# Site-level frailty (log-normal, variance = 0.4)
+site_id      <- rep(1:n_sites, each = n_per)
+site_frailty <- rep(exp(rnorm(n_sites, 0, sqrt(0.4))), each = n_per)
+
+df <- tibble(
+  id        = 1:n,
+  site      = site_id,
+  frailty   = site_frailty,
+  age       = rnorm(n, 60, 10),
+  ecog      = sample(0:2, n, replace = TRUE, prob = c(.5, .35, .15)),
+  biomarker = rnorm(n, 0, 1),
+  treatment = rbinom(n, 1, prob = plogis(-0.5 + 0.3*biomarker - 0.2*ecog))
+)
+
+# Simulate survival times with site frailty baked in
+surv <- simsurv(
+  dist    = "weibull",
+  lambdas = 0.1,
+  gammas  = 1.5,
+  betas   = c(treatment = -0.43, age = 0.02,
+              ecog = 0.3, biomarker = 0.15, frailty = 1.0),
+  x       = df,
+  maxt    = 36
+)
+
+df <- df %>%
+  left_join(surv, by = "id") %>%
+  rename(time = eventtime, event = status)
+
+dir.create("data", showWarnings = FALSE)
+write_csv(df, "data/trial_data.csv")
+cat("✓ Data saved locally\n")
+
+put_object(file = "data/trial_data.csv", object = "trial_data.csv",
+           bucket = "pharmatrialsim-bucket")
+cat("✓ Uploaded to S3\n")
