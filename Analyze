@@ -1,0 +1,55 @@
+library(tidyverse)
+library(survival)
+library(WeightIt)
+library(aws.s3)
+
+Sys.setenv(
+  AWS_ACCESS_KEY_ID     = "___",
+  AWS_SECRET_ACCESS_KEY = "___",
+  AWS_DEFAULT_REGION    = "___"
+)
+
+df <- s3read_using(read_csv, object = "trial_data.csv",
+                   bucket = "pharmatrialsim-bucket")
+cat("✓ Data pulled from S3\n")
+
+# IPW weights
+w_out <- weightit(
+  treatment ~ age + ecog + biomarker,
+  data = df, method = "ps", estimand = "ATE"
+)
+df$ipw <- w_out$weights
+cat("✓ IPW weights estimated\n")
+
+# Standard weighted KM (unchanged)
+km_fit <- survfit(
+  Surv(time, event) ~ treatment,
+  data = df, weights = df$ipw
+)
+cat("✓ KM curves fit\n")
+
+# Standard weighted Cox (unchanged)
+cox_fit <- coxph(
+  Surv(time, event) ~ treatment + age + ecog + biomarker,
+  data = df, weights = df$ipw, robust = TRUE
+)
+cat("✓ Standard Cox model fit\n")
+
+# --- NEW: Shared gamma frailty model (clusters = clinical sites) ---
+frailty_fit <- coxph(
+  Surv(time, event) ~ treatment + age + ecog + biomarker +
+    frailty(site, distribution = "gamma"),
+  data = df
+)
+cat("✓ Shared frailty model fit\n")
+
+# Save all three models
+dir.create("analysis", showWarnings = FALSE)
+saveRDS(
+  list(km = km_fit, cox = cox_fit, frailty = frailty_fit, data = df),
+  "analysis/results.rds"
+)
+
+put_object(file = "analysis/results.rds", object = "results.rds",
+           bucket = "pharmatrialsim-bucket")
+cat("✓ Results uploaded to S3\n")
