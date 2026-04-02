@@ -1,4 +1,4 @@
-# PharmaTrialSim 🧬
+# PharmaTrialSim 
 
 A fully reproducible, cloud-deployed oncology clinical trial simulation
 and survival analysis pipeline built in R, with AWS S3 data storage and
